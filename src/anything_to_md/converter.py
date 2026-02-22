@@ -8,7 +8,21 @@ from pathlib import Path
 from typing import Optional, List, Callable
 from dataclasses import dataclass, field
 
-from markitdown import MarkItDown
+# Lazy import to avoid import errors when markitdown is not installed
+_markitdown = None
+
+def _get_markitdown():
+    global _markitdown
+    if _markitdown is None:
+        try:
+            from markitdown import MarkItDown
+            _markitdown = MarkItDown
+        except ImportError:
+            raise ImportError(
+                "markitdown is required. Install it with: pip install markitdown"
+            )
+    return _markitdown
+
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 import pathspec
@@ -87,6 +101,7 @@ class AnythingToMD:
         skip_patterns: Optional[List[str]] = None,
         verbose: bool = True
     ):
+        MarkItDown = _get_markitdown()
         self.markitdown = MarkItDown(enable_plugins=enable_plugins)
         self.verbose = verbose
         
@@ -155,7 +170,13 @@ class AnythingToMD:
         try:
             # Use MarkItDown to convert
             result = self.markitdown.convert(str(source))
-            markdown_content = result.text_content
+            # Handle different API versions - result may be string or object
+            if hasattr(result, 'text_content'):
+                markdown_content = result.text_content
+            elif hasattr(result, 'markdown'):
+                markdown_content = result.markdown
+            else:
+                markdown_content = str(result)
             
             # Write output
             output_dir.mkdir(parents=True, exist_ok=True)
@@ -312,7 +333,13 @@ class AnythingToMD:
         
         try:
             result = self.markitdown.convert(url)
-            content = result.text_content
+            # Handle different API versions
+            if hasattr(result, 'text_content'):
+                content = result.text_content
+            elif hasattr(result, 'markdown'):
+                content = result.markdown
+            else:
+                content = str(result)
             
             if output_path:
                 output_path = Path(output_path)
