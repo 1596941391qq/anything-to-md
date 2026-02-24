@@ -74,7 +74,7 @@ async def convert_file_to_markdown(
 @mcp.tool()
 async def convert_directory_to_markdown(
     source_dir: str,
-    target_dir: str,
+    target_dir: Optional[str] = None,
     preserve_structure: bool = True,
     skip_patterns: Optional[List[str]] = None
 ) -> str:
@@ -86,7 +86,7 @@ async def convert_directory_to_markdown(
     
     Args:
         source_dir: Source directory to process
-        target_dir: Target directory for output markdown files
+        target_dir: Target directory for output markdown files (default: <source_dir>/anything-to-md)
         preserve_structure: Keep the original directory structure (default: True)
         skip_patterns: Additional glob patterns for files to skip
     
@@ -99,9 +99,12 @@ async def convert_directory_to_markdown(
     if skip_patterns:
         converter = AnythingToMD(skip_patterns=skip_patterns)
     
+    source_path = Path(source_dir)
+    target_path = Path(target_dir) if target_dir else (source_path / "anything-to-md")
+
     result = converter.convert_directory(
-        source_dir=Path(source_dir),
-        target_dir=Path(target_dir),
+        source_dir=source_path,
+        target_dir=target_path,
         preserve_structure=preserve_structure
     )
     

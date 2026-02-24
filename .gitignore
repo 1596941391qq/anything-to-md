@@ -14,6 +14,7 @@ dist/
 # Virtual environments
 .env
 .venv/
+.venv-test/
 venv/
 env/
 ENV/
@@ -37,6 +38,7 @@ Thumbs.db
 # Local outputs (generated)
 output/
 test_output/
+test_data/
 tmp/
 tmp*/
 

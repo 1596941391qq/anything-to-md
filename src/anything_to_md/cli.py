@@ -41,6 +41,8 @@ def cmd_convert_file(args):
 def cmd_convert_dir(args):
     """Handle directory conversion"""
     skip_patterns = args.skip or []
+    source_dir = Path(args.source)
+    target_dir = Path(args.target) if args.target else (source_dir / "anything-to-md")
     
     converter = AnythingToMD(
         verbose=True,
@@ -48,14 +50,14 @@ def cmd_convert_dir(args):
     )
     
     result = converter.convert_directory(
-        source_dir=Path(args.source),
-        target_dir=Path(args.target),
+        source_dir=source_dir,
+        target_dir=target_dir,
         preserve_structure=not args.flat
     )
     
     if args.report:
         # Generate detailed report
-        report_path = Path(args.target) / "conversion_report.md"
+        report_path = target_dir / "conversion_report.md"
         generate_report(result, report_path)
         console.print(f"\n[cyan]Report saved to:[/cyan] {report_path}")
     
@@ -170,7 +172,11 @@ def main():
     # Convert directory command
     dir_parser = subparsers.add_parser('dir', help='Convert all files in a directory')
     dir_parser.add_argument('source', help='Source directory')
-    dir_parser.add_argument('target', help='Target directory')
+    dir_parser.add_argument(
+        'target',
+        nargs='?',
+        help='Target directory (default: <source>/anything-to-md)'
+    )
     dir_parser.add_argument('--flat', action='store_true', 
                            help='Use flat directory structure')
     dir_parser.add_argument('--skip', action='append', 

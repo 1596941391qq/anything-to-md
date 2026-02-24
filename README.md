@@ -16,11 +16,13 @@
 
 - 文档：PDF / DOCX / XLSX / PPTX 等（优先走 MarkItDown）
 - 图片：通过 MarkItDown 生态插件支持 OCR（依赖插件环境）
-- 视频：
-  - 优先走 MarkItDown 转写
-  - 若失败：自动尝试
-    - 提取内嵌字幕轨（SRT/WebVTT）
-    - 提取音频并分段转写（SpeechRecognition + Google）
+- 视频/音频：
+  - MarkItDown 内置 `AudioConverter` 支持 `.mp4/.mp3/.wav/.m4a`，但它将整个文件一次性发送给 Google Speech Recognition API，大文件（通常 > 几分钟）会因请求体过大而失败
+  - 本项目的处理链路：
+    1. 先尝试 MarkItDown 原生转写（适用于短音视频）
+    2. 若失败，提取内嵌字幕轨（SRT/WebVTT，ffprobe + ffmpeg）
+    3. 若仍无内容，用 ffmpeg 分段提取音频 + SpeechRecognition 逐段转写（带时间戳）
+    4. 若所有方案均无法提取实际内容，标记为失败（不输出仅含元数据的占位文件）
 - YouTube：通过 `convert_youtube` 工具输出 Markdown
 - 目录批处理：保持目录结构或平铺输出
 
@@ -91,7 +93,7 @@ python -m anything_to_md.mcp_server
 1. 使用干净 venv
 2. 安装 `markitdown[all]` 并确保 `numpy/pandas/pyarrow` 版本兼容
 
-本项目已提供回退路径，尽量保证产出可用 Markdown，而不是仅输出无用元数据。
+本项目已提供回退路径：当 MarkItDown 原生转换失败时，自动尝试字幕提取、音频分段转写等备选方案。如果所有备选方案均无法提取到实际内容（仅剩元数据），则标记为转换失败，不会输出无用的元数据占位文件。
 
 ## 本轮测试（你提供的 test_data）
 
