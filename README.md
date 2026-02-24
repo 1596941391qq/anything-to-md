@@ -1,248 +1,109 @@
-# Anything-to-MD
+﻿# Anything-to-MD
 
-**Convert any file to clean, LLM-ready Markdown**
+把常见多模态内容（PDF、Office、图片、音视频、网页/YouTube）转成适合 AI 消费的 Markdown。
 
-A unified solution combining Microsoft MarkItDown's document processing with Claude Code Skill capabilities for comprehensive file-to-Markdown conversion.
+## 项目定位
 
-## Features
+本项目是一个统一包体，包含三种使用方式：
 
-- **50+ File Formats**: PDF, Word, Excel, PowerPoint, Images (OCR), Audio, Video, HTML, EPUB
-- **YouTube Support**: Extract transcripts from YouTube videos
-- **Batch Processing**: Convert entire directories while preserving structure
-- **MCP Server**: Native Model Context Protocol support for Claude integration
-- **CLI Tool**: Powerful command-line interface for automation
+- CLI：本地命令行批量/单文件转换
+- MCP Server：给 Claude Code / AionUI 等 MCP 客户端调用
+- Skill：在 Agent 工作流中作为可复用能力描述
 
-## Installation
+核心目标：将“原始多模态输入”转换为“结构化、可索引、可总结”的 Markdown。
+
+## 已实现能力
+
+- 文档：PDF / DOCX / XLSX / PPTX 等（优先走 MarkItDown）
+- 图片：通过 MarkItDown 生态插件支持 OCR（依赖插件环境）
+- 视频：
+  - 优先走 MarkItDown 转写
+  - 若失败：自动尝试
+    - 提取内嵌字幕轨（SRT/WebVTT）
+    - 提取音频并分段转写（SpeechRecognition + Google）
+- YouTube：通过 `convert_youtube` 工具输出 Markdown
+- 目录批处理：保持目录结构或平铺输出
+
+## 安装
 
 ```bash
-# Using pip
-pip install anything-to-md
-
-# Using uv (recommended)
-uv pip install anything-to-md
-
-# From source
-git clone https://github.com/yourusername/anything-to-md.git
-cd anything-to-md
-pip install -e ".[all]"
+pip install -e .
 ```
 
-## Quick Start
+建议使用独立虚拟环境，避免系统 Python 依赖冲突。
 
-### Command Line
+## CLI 用法
 
 ```bash
-# Convert a single file
-anything-to-md file document.pdf -o ./output
+# 单文件
+anything-to-md file ./test_data/demo.pdf -o ./output
 
-# Convert entire directory
-anything-to-md dir ./documents ./markdown --report
+# 目录批量
+anything-to-md dir ./test_data ./output --report
 
-# Extract YouTube transcript
-anything-to-md youtube "https://youtube.com/watch?v=xxx"
+# YouTube
+anything-to-md youtube "https://www.youtube.com/watch?v=..."
 
-# List supported formats
+# 查看格式支持
 anything-to-md formats
 ```
 
-### MCP Server
+## MCP 用法
+
+### 直接启动
 
 ```bash
-# Start the MCP server
 anything-to-md-mcp
-
-# Or with Python
+# 或
 python -m anything_to_md.mcp_server
 ```
 
-### Python API
-
-```python
-from anything_to_md import AnythingToMD
-
-# Initialize converter
-converter = AnythingToMD()
-
-# Convert single file
-result = converter.convert_file("document.pdf", output_dir="./output")
-print(result.markdown)
-
-# Convert directory
-batch_result = converter.convert_directory(
-    source_dir="./documents",
-    target_dir="./markdown",
-    preserve_structure=True
-)
-print(f"Converted {batch_result.converted} files")
-
-# Extract YouTube transcript
-yt_result = converter.convert_youtube("https://youtube.com/watch?v=xxx")
-print(yt_result.markdown)
-```
-
-## Supported Formats
-
-| Category | Formats |
-|----------|---------|
-| Documents | PDF, DOCX, XLSX, PPTX, ODT, ODS, ODP, DOC, XLS, PPT |
-| Web | HTML, HTM, XHTML |
-| eBooks | EPUB, MOBI |
-| Data | CSV, TSV, JSON, XML |
-| Images | PNG, JPG, JPEG, GIF, BMP, TIFF, WEBP (with OCR) |
-| Audio | MP3, WAV, M4A, FLAC, OGG, AAC |
-| Video | MP4, MKV, AVI, MOV, WEBM |
-| URLs | YouTube, Wikipedia, RSS feeds |
-| Other | RTF, TXT, IPYNB, MSG, ZIP |
-
-## Configuration
-
-### Environment Variables
-
-```bash
-# Enable MarkItDown plugins
-export ANYTHING_TO_MD_ENABLE_PLUGINS=true
-```
-
-### Claude Code Integration
-
-Add to your Claude Code MCP settings:
+### Claude Code 侧配置示例
 
 ```json
 {
   "mcpServers": {
     "anything-to-md": {
-      "command": "uvx",
-      "args": ["anything-to-md-mcp"]
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "anything_to_md.mcp_server"]
     }
   }
 }
 ```
 
-### AionUI Integration
+## Skill + MCP + CLI 是否开箱即用
 
-Add to AionUI configuration:
+是。当前仓库已经具备：
 
-```yaml
-mcp_servers:
-  - name: anything-to-md
-    command: python -m anything_to_md.mcp_server
-    enabled: true
-```
+- `project.scripts`：`anything-to-md` / `anything-to-md-mcp`
+- `mcp.servers` entry point：`anything-to-md`
+- `src/skill/SKILL.md`：Skill 描述文件
 
-## CLI Reference
+只要依赖完整且运行环境正常，即可直接使用。
 
-```
-anything-to-md <command> [options]
+## 重要说明：依赖兼容性
 
-Commands:
-  file <path>           Convert a single file
-  dir <source> <target> Convert all files in a directory
-  youtube <url>         Extract YouTube transcript
-  formats               List supported formats
+如果你在系统环境看到类似 `NumPy 2.x 与 pandas/pyarrow ABI 不兼容`，MarkItDown 可能初始化失败。
 
-Options:
-  -o, --output-dir DIR  Output directory
-  -n, --output-name NAME Output filename
-  -p, --print-output    Print output to console
-  --flat                Use flat directory structure
-  --skip PATTERN        Skip files matching pattern
-  --report              Generate conversion report
-  --version             Show version
-  --help                Show help
-```
+建议：
 
-## Examples
+1. 使用干净 venv
+2. 安装 `markitdown[all]` 并确保 `numpy/pandas/pyarrow` 版本兼容
 
-### Convert Research Papers
+本项目已提供回退路径，尽量保证产出可用 Markdown，而不是仅输出无用元数据。
 
-```bash
-anything-to-md dir ./papers ./papers-md --skip "draft_*" --report
-```
+## 本轮测试（你提供的 test_data）
 
-### Process Document Library
+输入：3 个 PDF + 3 个 MP4
 
-```python
-from anything_to_md import AnythingToMD
+结果：
 
-converter = AnythingToMD()
+- 3/3 PDF 成功转为 Markdown
+- 3/3 MP4 成功产出 Markdown，其中无字幕视频通过音频分段转写生成带时间戳内容
 
-# Convert with custom skip patterns
-result = converter.convert_directory(
-    source_dir="./library",
-    target_dir="./library-md",
-    skip_patterns=["*.bak", "temp_*", "archive/*"]
-)
+输出目录：`test_output/full_run/`
 
-# Check results
-print(f"Success rate: {result.success_rate:.1f}%")
-for r in result.results:
-    if not r.success and not r.skipped:
-        print(f"Failed: {r.source_path} - {r.error}")
-```
+## 许可证
 
-### Batch YouTube Processing
-
-```python
-from anything_to_md import AnythingToMD
-
-converter = AnythingToMD()
-
-videos = [
-    "https://youtube.com/watch?v=xxx",
-    "https://youtube.com/watch?v=yyy",
-]
-
-for url in videos:
-    result = converter.convert_youtube(url)
-    if result.success:
-        # Process transcript
-        print(f"Transcript length: {len(result.markdown)} chars")
-```
-
-## Architecture
-
-```
-anything-to-md/
-├── src/
-│   └── anything_to_md/
-│       ├── __init__.py      # Package exports
-│       ├── converter.py     # Core conversion logic
-│       ├── mcp_server.py    # MCP server implementation
-│       └── cli.py           # Command-line interface
-├── src/skill/
-│   └── SKILL.md            # Claude Code Skill definition
-├── tests/
-│   └── test_converter.py
-├── pyproject.toml
-└── README.md
-```
-
-## Dependencies
-
-- **markitdown**: Microsoft's document conversion library
-- **mcp**: Model Context Protocol implementation
-- **yt-dlp**: YouTube video information extraction
-- **rich**: Terminal formatting and progress bars
-- **pathspec**: Gitignore-style pattern matching
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
-
-## License
-
-MIT License - See LICENSE file for details.
-
-## Acknowledgments
-
-- [Microsoft MarkItDown](https://github.com/microsoft/markitdown) - Core document conversion
-- [Video Insight Skill](https://mcpmarket.com/tools/skills/video-insight) - Inspiration for video processing
-- [MCP Protocol](https://modelcontextprotocol.io/) - Claude integration
-
----
-
-**Made for the AI-assisted development workflow**
+MIT
