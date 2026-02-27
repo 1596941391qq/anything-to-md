@@ -1,66 +1,101 @@
-﻿# Anything-to-MD
+# Anything-to-MD
 
-把常见多模态内容（PDF、Office、图片、音视频、网页/YouTube）转成适合 AI 消费的 Markdown。
+> 把任何文件变成 AI 能吃的 Markdown。PDF、Office、图片、音视频、YouTube — 一个命令搞定。
 
-## 项目定位
+```
+anything-to-md file report.pdf -o ./output
+```
 
-本项目是一个统一包体，包含三种使用方式：
+## 为什么需要这个
 
-- CLI：本地命令行批量/单文件转换
-- MCP Server：给 Claude Code / AionUI 等 MCP 客户端调用
-- Skill：在 Agent 工作流中作为可复用能力描述
+LLM 不吃 PDF，不吃 PPT，不吃视频。但你的知识全在这些格式里。
 
-核心目标：将“原始多模态输入”转换为“结构化、可索引、可总结”的 Markdown。
+Anything-to-MD 是一个统一转换层：**原始多模态输入 → 结构化、可索引、可总结的 Markdown**。
 
-## 已实现能力
+三种使用方式，同一套引擎：
 
-- 文档：PDF / DOCX / XLSX / PPTX 等（优先走 MarkItDown）
-- 图片：通过 MarkItDown 生态插件支持 OCR（依赖插件环境）
-- 视频/音频：
-  - MarkItDown 内置 `AudioConverter` 支持 `.mp4/.mp3/.wav/.m4a`，但它将整个文件一次性发送给 Google Speech Recognition API，大文件（通常 > 几分钟）会因请求体过大而失败
-  - 本项目的处理链路：
-    1. 先尝试 MarkItDown 原生转写（适用于短音视频）
-    2. 若失败，提取内嵌字幕轨（SRT/WebVTT，ffprobe + ffmpeg）
-    3. 若仍无内容，用 ffmpeg 分段提取音频 + SpeechRecognition 逐段转写（带时间戳）
-    4. 若所有方案均无法提取实际内容，标记为失败（不输出仅含元数据的占位文件）
-- YouTube：通过 `convert_youtube` 工具输出 Markdown
-- 目录批处理：保持目录结构或平铺输出
+| 方式 | 场景 |
+|------|------|
+| CLI | 本地命令行，单文件或批量 |
+| MCP Server | Claude Code / Cursor / AionUI 等 MCP 客户端直接调用 |
+| Skill | Agent 工作流中作为可复用能力 |
+
+## 架构
+
+```
+输入文件
+  │
+  ├─ PDF ──→ MinerU (OCR级) ──→ MarkItDown ──→ pypdf
+  │          布局检测+表格识别     文本提取        纯文本兜底
+  │          图片提取+公式识别
+  │
+  ├─ Office (DOCX/XLSX/PPTX) ──→ MarkItDown ──→ openpyxl 兜底
+  │
+  ├─ 图片 ──→ MarkItDown + OCR 插件
+  │
+  ├─ 音视频 ──→ MarkItDown 转写 ──→ 内嵌字幕提取 ──→ ffmpeg 分段 + SpeechRecognition
+  │
+  ├─ YouTube ──→ yt-dlp 字幕/转写
+  │
+  └─ HTML/EPUB/CSV/JSON/XML ──→ MarkItDown
+                                      │
+                                      ▼
+                              结构化 Markdown 输出
+```
+
+每种格式都有多级降级链。上游失败，自动切下游，不丢内容。
+
+## PDF 三级引擎
+
+这是核心差异化能力。大多数工具只有一个 PDF 后端，遇到扫描件或中文图文混排就歇菜。
+
+| 优先级 | 引擎 | 能力 | 适用场景 |
+|--------|------|------|----------|
+| 1 | **MinerU** | OCR + 布局检测 + 表格识别 + 图片提取 | 扫描件、中文/CJK、PPT导出、图文混排 |
+| 2 | **MarkItDown** | 快速文本提取 | 纯文本 PDF、英文文档 |
+| 3 | **pypdf** | 基础文本提取 | 最后兜底 |
+
+MinerU 首次运行会下载 ~2GB 模型（后续秒开）。如果你的 PDF 是纯文本英文，MarkItDown 就够了；但凡涉及中文、扫描件、表格 — MinerU 是质的飞跃。
 
 ## 安装
 
 ```bash
+# 基础安装
 pip install -e .
+
+# 安装 MinerU（推荐，PDF 质量大幅提升）
+pip install magic-pdf[full]
 ```
 
-建议使用独立虚拟环境，避免系统 Python 依赖冲突。
+建议使用独立虚拟环境。NumPy 2.x 与部分依赖有 ABI 兼容问题，干净 venv 可以避免。
 
-## CLI 用法
+## CLI
 
 ```bash
-# 单文件
-anything-to-md file ./test_data/demo.pdf -o ./output
+# 单文件转换
+anything-to-md file document.pdf -o ./output
 
-# 目录批量
-anything-to-md dir ./test_data ./output --report
+# 目录批量转换（保持目录结构）
+anything-to-md dir ./my-docs ./my-mds --report
 
-# YouTube
+# YouTube 视频转写
 anything-to-md youtube "https://www.youtube.com/watch?v=..."
 
-# 查看格式支持
+# 查看支持的格式
 anything-to-md formats
 ```
 
-## MCP 用法
-
-### 直接启动
+## MCP Server
 
 ```bash
+# 直接启动
 anything-to-md-mcp
+
 # 或
 python -m anything_to_md.mcp_server
 ```
 
-### Claude Code 侧配置示例
+Claude Code 配置：
 
 ```json
 {
@@ -74,38 +109,53 @@ python -m anything_to_md.mcp_server
 }
 ```
 
-## Skill + MCP + CLI 是否开箱即用
+MCP 提供 4 个工具：
 
-是。当前仓库已经具备：
+- `convert_file_to_markdown` — 单文件转换
+- `convert_directory_to_markdown` — 批量转换
+- `convert_youtube_to_markdown` — YouTube 转写
+- `get_supported_formats` — 查看支持格式
 
-- `project.scripts`：`anything-to-md` / `anything-to-md-mcp`
-- `mcp.servers` entry point：`anything-to-md`
-- `src/skill/SKILL.md`：Skill 描述文件
+## 支持格式
 
-只要依赖完整且运行环境正常，即可直接使用。
+| 类别 | 格式 |
+|------|------|
+| 文档 | PDF, DOCX, XLSX, PPTX, ODT, ODS, ODP |
+| 网页 | HTML, HTM, XHTML |
+| 电子书 | EPUB, MOBI |
+| 数据 | CSV, TSV, JSON, XML |
+| 图片 | PNG, JPG, GIF, BMP, TIFF, WEBP (OCR) |
+| 音频 | MP3, WAV, M4A, FLAC, OGG, AAC |
+| 视频 | MP4, MKV, AVI, MOV, WEBM |
+| URL | YouTube, Wikipedia, RSS |
 
-## 重要说明：依赖兼容性
+## 音视频处理链路
 
-如果你在系统环境看到类似 `NumPy 2.x 与 pandas/pyarrow ABI 不兼容`，MarkItDown 可能初始化失败。
+视频/音频不是简单的"转写"就完事。处理链路：
 
-建议：
+1. MarkItDown 原生转写（短音视频）
+2. 若失败 → 提取内嵌字幕轨（SRT/WebVTT）
+3. 若无字幕 → ffmpeg 分段提取音频 + SpeechRecognition 逐段转写（带时间戳）
+4. 若全部失败 → 标记失败（不输出空壳文件）
 
-1. 使用干净 venv
-2. 安装 `markitdown[all]` 并确保 `numpy/pandas/pyarrow` 版本兼容
+## 依赖兼容性
 
-本项目已提供回退路径：当 MarkItDown 原生转换失败时，自动尝试字幕提取、音频分段转写等备选方案。如果所有备选方案均无法提取到实际内容（仅剩元数据），则标记为转换失败，不会输出无用的元数据占位文件。
+已知问题：NumPy 2.x 与 pandas/pyarrow 的 ABI 不兼容可能导致 MarkItDown 初始化失败。
 
-## 本轮测试（你提供的 test_data）
+解决方案：
+```bash
+pip install numpy==1.26.4  # 降级到 1.x
+```
 
-输入：3 个 PDF + 3 个 MP4
+所有引擎都有降级路径，单个引擎挂了不影响整体。
 
-结果：
+## Roadmap
 
-- 3/3 PDF 成功转为 Markdown
-- 3/3 MP4 成功产出 Markdown，其中无字幕视频通过音频分段转写生成带时间戳内容
+- [ ] 视频 OCR 智能路由（关键帧提取 + 画面文字识别 + 语音转写融合）
+- [ ] faster-whisper 替代 Google Speech Recognition
+- [ ] GPU 加速支持
+- [ ] 并行批处理
 
-输出目录：`test_output/full_run/`
-
-## 许可证
+## License
 
 MIT
