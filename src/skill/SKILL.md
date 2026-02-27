@@ -10,6 +10,11 @@ description: |
   - User wants to prepare content for LLM processing
   
   Triggers: "convert to markdown", "anything to md", "document to md", "pdf to md", "batch convert", "youtube transcript"
+
+  PDF Backend Priority:
+  1. MinerU (mineru CLI) - High-quality OCR-based extraction with layout detection, table recognition, formula extraction. Best for Chinese/CJK PDFs, scanned documents, and image-heavy presentations.
+  2. MarkItDown (Microsoft) - Fast text-based extraction for simple text PDFs.
+  3. pypdf - Last resort fallback for basic text extraction.
 metadata:
   model: sonnet
   allowed-tools:

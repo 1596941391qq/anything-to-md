@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import json
 import uuid
+import tempfile
 from pathlib import Path
 from typing import Optional, List, Callable
 from dataclasses import dataclass, field
@@ -371,6 +372,85 @@ class AnythingToMD:
                 except Exception:
                     pass
 
+    def _convert_pdf_with_mineru(self, source: Path, output_dir: Path) -> Optional[str]:
+        """
+        Try converting PDF using MinerU (mineru CLI) for high-quality extraction.
+        Returns markdown string on success, None on failure.
+        """
+        try:
+            # Check if mineru is available
+            check = subprocess.run(
+                ['mineru', '--version'],
+                capture_output=True, text=True, timeout=10, check=False
+            )
+            if check.returncode != 0:
+                if self.verbose:
+                    console.print("[dim]MinerU not available, skipping...[/dim]")
+                return None
+        except (FileNotFoundError, Exception):
+            return None
+
+        temp_out = Path(tempfile.mkdtemp(prefix='mineru_'))
+        try:
+            if self.verbose:
+                console.print(f"[cyan]⚡ Using MinerU for PDF: {source.name}[/cyan]")
+
+            proc = subprocess.run(
+                ['mineru', '-p', str(source), '-o', str(temp_out)],
+                capture_output=True, text=True, timeout=600, check=False
+            )
+
+            if proc.returncode != 0:
+                if self.verbose:
+                    stderr_snippet = (proc.stderr or '')[:200]
+                    console.print(f"[yellow]MinerU failed (rc={proc.returncode}): {stderr_snippet}[/yellow]")
+                return None
+
+            # MinerU outputs: <temp_out>/<pdf_stem>/<pdf_stem>.md  (+ images/ folder)
+            stem = source.stem
+            # Search for the generated .md file
+            md_candidates = list(temp_out.rglob('*.md'))
+            if not md_candidates:
+                if self.verbose:
+                    console.print("[yellow]MinerU produced no .md output[/yellow]")
+                return None
+
+            md_file = md_candidates[0]
+            md_content = md_file.read_text(encoding='utf-8', errors='replace')
+
+            if not md_content.strip():
+                return None
+
+            # Copy extracted images to output directory if they exist
+            images_dir = md_file.parent / 'images'
+            if images_dir.exists() and images_dir.is_dir():
+                target_images = output_dir / f'{stem}_images'
+                target_images.mkdir(parents=True, exist_ok=True)
+                for img in images_dir.iterdir():
+                    if img.is_file():
+                        shutil.copy2(str(img), str(target_images / img.name))
+                # Rewrite image paths in markdown
+                md_content = md_content.replace(
+                    'images/', f'{stem}_images/'
+                )
+
+            if self.verbose:
+                line_count = len(md_content.splitlines())
+                console.print(f"[green]✓ MinerU extracted {line_count} lines[/green]")
+
+            return md_content
+
+        except subprocess.TimeoutExpired:
+            if self.verbose:
+                console.print("[yellow]MinerU timed out (>600s)[/yellow]")
+            return None
+        except Exception as ex:
+            if self.verbose:
+                console.print(f"[yellow]MinerU error: {ex}[/yellow]")
+            return None
+        finally:
+            shutil.rmtree(temp_out, ignore_errors=True)
+
     def _extract_pdf_markdown_fallback(self, source: Path) -> List[str]:
         if source.suffix.lower() != '.pdf':
             return []
@@ -476,7 +556,26 @@ class AnythingToMD:
             output_name = output_name + '.md'
         
         target_path = output_dir / output_name
-        
+
+        # For PDF files, try MinerU first (highest quality)
+        if source.suffix.lower() == '.pdf':
+            mineru_md = self._convert_pdf_with_mineru(source, output_dir)
+            if mineru_md and mineru_md.strip():
+                try:
+                    output_dir.mkdir(parents=True, exist_ok=True)
+                    target_path.write_text(mineru_md, encoding='utf-8')
+                    if self.verbose:
+                        console.print(f"[green]✓[/green] {source.name} -> {output_name} [MinerU]")
+                    return ConversionResult(
+                        source_path=source,
+                        target_path=target_path,
+                        success=True,
+                        markdown=mineru_md
+                    )
+                except Exception as write_err:
+                    if self.verbose:
+                        console.print(f"[yellow]MinerU write failed, trying fallback: {write_err}[/yellow]")
+
         converter = self._ensure_markitdown()
 
         try:
