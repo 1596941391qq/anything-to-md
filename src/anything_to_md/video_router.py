@@ -226,8 +226,9 @@ class VideoProbe:
                         encoding='utf-8', errors='replace'
                     )
                     if proc.returncode == 0 and frame_path.exists():
-                        # Run OCR
-                        result, elapse = ocr(str(frame_path))
+                        # Run OCR (returns (result_list, times_list))
+                        ocr_output = ocr(str(frame_path))
+                        result = ocr_output[0] if ocr_output else None
                         if result:
                             for item in result:
                                 if item and len(item) > 1:
@@ -497,7 +498,9 @@ class FrameOCR:
 
             for frame_path, timestamp in frames:
                 try:
-                    result, elapse = ocr(str(frame_path))
+                    # OCR returns (result_list, times_list)
+                    ocr_output = ocr(str(frame_path))
+                    result = ocr_output[0] if ocr_output else None
                     if result:
                         frame_texts = []
                         for item in result:
