@@ -106,18 +106,66 @@ PROBE → DECIDE → EXTRACT → FUSE
 
 ## 安装
 
+### 方式一：一键安装（推荐）
+
+**Linux / macOS:**
 ```bash
-# 基础安装
-pip install -e .
-
-# 安装 MinerU（推荐，PDF 质量大幅提升）
-pip install magic-pdf[full]
-
-# 安装视频处理依赖
-pip install rapidocr-onnxruntime faster-whisper scenedetect imagehash
+git clone https://github.com/your-repo/anything-to-md.git
+cd anything-to-md
+chmod +x install.sh
+./install.sh
 ```
 
-建议使用独立虚拟环境。NumPy 2.x 与部分依赖有 ABI 兼容问题，干净 venv 可以避免。
+**Windows (PowerShell):**
+```powershell
+git clone https://github.com/your-repo/anything-to-md.git
+cd anything-to-md
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\install.ps1
+```
+
+安装脚本会：
+1. 创建独立虚拟环境
+2. 安装基础依赖
+3. 询问是否安装 PDF 增强（MinerU）
+4. 询问是否安装视频支持
+5. 验证安装
+
+### 方式二：手动安装
+
+```bash
+# 基础安装（纯文本 PDF、Office、HTML、JSON 等）
+pip install -e .
+
+# PDF 增强（中文 PDF、扫描件、表格）
+pip install -e ".[pdf]"
+
+# 视频处理支持
+pip install -e ".[video]"
+
+# 完整安装（所有功能）
+pip install -e ".[full]"
+```
+
+### 外部依赖
+
+| 功能 | 依赖 | 安装方法 |
+|------|------|----------|
+| 视频处理 | ffmpeg | `brew install ffmpeg` / `apt install ffmpeg` / `winget install ffmpeg` |
+| PDF OCR | MinerU 模型 (~2GB) | 首次运行自动下载 |
+
+### 常见问题
+
+**NumPy 兼容性:**
+```bash
+pip install "numpy<2.0"  # 避免 ABI 兼容问题
+```
+
+**PyTorch CUDA 问题:**
+```bash
+# faster-whisper CUDA DLL 加载失败时，自动降级到 openai-whisper
+pip install openai-whisper
+```
 
 ## CLI
 
@@ -179,22 +227,27 @@ MCP 提供 4 个工具：
 | 视频 | MP4, MKV, AVI, MOV, WEBM |
 | URL | YouTube, Wikipedia, RSS |
 
-## 依赖兼容性
-
-已知问题：NumPy 2.x 与 pandas/pyarrow 的 ABI 不兼容可能导致 MarkItDown 初始化失败。
-
-解决方案：
-```bash
-pip install numpy==1.26.4  # 降级到 1.x
-```
-
-所有引擎都有降级路径，单个引擎挂了不影响整体。
-
 ## Roadmap
 
 - [ ] GPU 加速支持（CUDA/Metal）
 - [ ] 并行批处理
 - [ ] 更多 OCR 引擎（EasyOCR, Tesseract）
+
+## 致谢 / Acknowledgments
+
+本项目基于以下优秀开源项目构建：
+
+| 项目 | 用途 | 链接 |
+|------|------|------|
+| **MarkItDown** | 核心文档转换引擎 | [github.com/microsoft/markitdown](https://github.com/microsoft/markitdown) |
+| **MinerU (magic-pdf)** | PDF OCR + 布局检测 + 表格识别 | [github.com/opendatalab/MinerU](https://github.com/opendatalab/MinerU) |
+| **Video Insight** | 视频智能路由设计灵感 | Claude Code Skill |
+| **faster-whisper** | 高效音频转写 | [github.com/systran/faster-whisper](https://github.com/systran/faster-whisper) |
+| **RapidOCR** | 中英文 OCR 引擎 | [github.com/RapidAI/RapidOCR](https://github.com/RapidAI/RapidOCR) |
+| **PySceneDetect** | 视频场景检测 | [github.com/Breakthrough/PySceneDetect](https://github.com/Breakthrough/PySceneDetect) |
+| **imagehash** | 感知哈希去重 | [github.com/JohannesBuchner/imagehash](https://github.com/JohannesBuchner/imagehash) |
+
+特别感谢这些项目的作者和贡献者，让文档转换变得更简单。
 
 ## License
 

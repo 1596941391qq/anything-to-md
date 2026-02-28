@@ -27,6 +27,26 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# PDF 增强支持（MinerU）
+pdf = [
+    "magic-pdf[full]>=0.6.0",
+]
+
+# 视频处理支持
+video = [
+    "rapidocr-onnxruntime>=1.3.0",
+    "faster-whisper>=1.0.0",
+    "scenedetect[opencv]>=0.6.0",
+    "imagehash>=4.3.0",
+    "Pillow>=10.0.0",
+]
+
+# 完整安装（所有功能）
+full = [
+    "anything-to-md[pdf,video]",
+]
+
+# 开发工具
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
