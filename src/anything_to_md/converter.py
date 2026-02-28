@@ -31,6 +31,19 @@ from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 import pathspec
 
+# Lazy import for video router
+_video_router = None
+
+def _get_video_router():
+    global _video_router
+    if _video_router is None:
+        try:
+            from .video_router import VideoRouter
+            _video_router = VideoRouter
+        except ImportError:
+            pass
+    return _video_router
+
 console = Console()
 
 
@@ -451,6 +464,42 @@ class AnythingToMD:
         finally:
             shutil.rmtree(temp_out, ignore_errors=True)
 
+    def _convert_video_with_router(self, source: Path, output_dir: Path) -> Optional[str]:
+        """
+        Convert video file using intelligent routing (probe -> decide -> extract -> fuse).
+        Returns markdown string on success, None on failure.
+        """
+        VideoRouter = _get_video_router()
+        if VideoRouter is None:
+            return None
+
+        try:
+            if self.verbose:
+                console.print(f"[cyan]🎬 Using VideoRouter for: {source.name}[/cyan]")
+
+            router = VideoRouter(verbose=self.verbose)
+            result = router.extract(source, output_dir)
+
+            if result.error:
+                if self.verbose:
+                    console.print(f"[yellow]VideoRouter error: {result.error}[/yellow]")
+                return None
+
+            if not result.markdown or not result.markdown.strip():
+                return None
+
+            if self.verbose:
+                seg_count = len(result.transcript_segments)
+                console.print(f"[green]✓ VideoRouter extracted {seg_count} segments "
+                              f"(strategy: {result.strategy_used.value})[/green]")
+
+            return result.markdown
+
+        except Exception as ex:
+            if self.verbose:
+                console.print(f"[yellow]VideoRouter failed: {ex}[/yellow]")
+            return None
+
     def _extract_pdf_markdown_fallback(self, source: Path) -> List[str]:
         if source.suffix.lower() != '.pdf':
             return []
@@ -575,6 +624,25 @@ class AnythingToMD:
                 except Exception as write_err:
                     if self.verbose:
                         console.print(f"[yellow]MinerU write failed, trying fallback: {write_err}[/yellow]")
+
+        # For video files, use intelligent routing (probe -> decide -> extract -> fuse)
+        if self._is_video_file(source):
+            video_md = self._convert_video_with_router(source, output_dir)
+            if video_md and video_md.strip():
+                try:
+                    output_dir.mkdir(parents=True, exist_ok=True)
+                    target_path.write_text(video_md, encoding='utf-8')
+                    if self.verbose:
+                        console.print(f"[green]✓[/green] {source.name} -> {output_name} [VideoRouter]")
+                    return ConversionResult(
+                        source_path=source,
+                        target_path=target_path,
+                        success=True,
+                        markdown=video_md
+                    )
+                except Exception as write_err:
+                    if self.verbose:
+                        console.print(f"[yellow]VideoRouter write failed, trying fallback: {write_err}[/yellow]")
 
         converter = self._ensure_markitdown()
 
