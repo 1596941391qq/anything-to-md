@@ -22,6 +22,7 @@ import hashlib
 # Lazy imports to avoid import errors
 _rapidocr = None
 _faster_whisper = None
+_openai_whisper = None
 _scenedetect = None
 _imagehash = None
 _pil_image = None
@@ -44,9 +45,20 @@ def _get_faster_whisper():
         try:
             from faster_whisper import WhisperModel
             _faster_whisper = WhisperModel
-        except ImportError:
+        except Exception:  # Catch OSError too (DLL loading issues on Windows)
             pass
     return _faster_whisper
+
+
+def _get_openai_whisper():
+    global _openai_whisper
+    if _openai_whisper is None:
+        try:
+            import whisper
+            _openai_whisper = whisper
+        except Exception:
+            pass
+    return _openai_whisper
 
 
 def _get_scenedetect():
@@ -147,7 +159,8 @@ class VideoProbe:
             proc = subprocess.run(
                 ['ffprobe', '-v', 'error', '-show_streams', '-show_format',
                  '-print_format', 'json', str(video_path)],
-                capture_output=True, text=True, timeout=30, check=False
+                capture_output=True, text=True, timeout=30, check=False,
+                encoding='utf-8', errors='replace'
             )
             if proc.returncode == 0 and proc.stdout.strip():
                 data = json.loads(proc.stdout)
@@ -209,7 +222,8 @@ class VideoProbe:
                         ['ffmpeg', '-y', '-v', 'error', '-ss', str(ts),
                          '-i', str(video_path), '-vframes', '1',
                          '-q:v', '2', str(frame_path)],
-                        capture_output=True, timeout=10, check=False
+                        capture_output=True, timeout=10, check=False,
+                        encoding='utf-8', errors='replace'
                     )
                     if proc.returncode == 0 and frame_path.exists():
                         # Run OCR
@@ -230,19 +244,35 @@ class VideoProbe:
 
 
 class AudioTranscriber:
-    """Phase 2a: Transcribe audio using faster-whisper"""
+    """Phase 2a: Transcribe audio using faster-whisper (preferred) or openai-whisper (fallback)"""
 
     def __init__(self, model_size: str = "base", device: str = "cpu"):
         self.model_size = model_size
         self.device = device
         self._model = None
+        self._backend = None  # 'faster_whisper' or 'openai_whisper'
 
     def _get_model(self):
         if self._model is None:
+            # Try faster-whisper first (faster)
             WhisperModel = _get_faster_whisper()
-            if WhisperModel is None:
-                raise ImportError("faster-whisper not installed")
-            self._model = WhisperModel(self.model_size, device=self.device, compute_type="int8")
+            if WhisperModel is not None:
+                try:
+                    self._model = WhisperModel(self.model_size, device=self.device, compute_type="int8")
+                    self._backend = 'faster_whisper'
+                    return self._model
+                except Exception:
+                    pass
+
+            # Fallback to openai-whisper
+            whisper = _get_openai_whisper()
+            if whisper is not None:
+                self._model = whisper.load_model(self.model_size, device=self.device)
+                self._backend = 'openai_whisper'
+                return self._model
+
+            raise ImportError("Neither faster-whisper nor openai-whisper is available")
+
         return self._model
 
     def transcribe(self, video_path: Path, language: str = None) -> List[TranscriptSegment]:
@@ -258,26 +288,41 @@ class AudioTranscriber:
                 proc = subprocess.run(
                     ['ffmpeg', '-y', '-v', 'error', '-i', str(video_path),
                      '-vn', '-ac', '1', '-ar', '16000', str(temp_audio)],
-                    capture_output=True, timeout=300, check=False
+                    capture_output=True, timeout=300, check=False,
+                    encoding='utf-8', errors='replace'
                 )
                 if proc.returncode != 0 or not temp_audio.exists():
                     return []
 
-                # Transcribe
-                transcribe_kwargs = {"task": "transcribe"}
-                if language:
-                    transcribe_kwargs["language"] = language
+                # Transcribe based on backend
+                if self._backend == 'faster_whisper':
+                    transcribe_kwargs = {"task": "transcribe"}
+                    if language:
+                        transcribe_kwargs["language"] = language
+                    trans_segments, info = model.transcribe(str(temp_audio), **transcribe_kwargs)
 
-                trans_segments, info = model.transcribe(str(temp_audio), **transcribe_kwargs)
+                    for seg in trans_segments:
+                        segments.append(TranscriptSegment(
+                            start_time=seg.start,
+                            end_time=seg.end,
+                            text=seg.text.strip(),
+                            source="audio",
+                            confidence=seg.no_speech_prob
+                        ))
+                else:  # openai_whisper
+                    transcribe_kwargs = {"task": "transcribe"}
+                    if language:
+                        transcribe_kwargs["language"] = language
+                    result = model.transcribe(str(temp_audio), **transcribe_kwargs)
 
-                for seg in trans_segments:
-                    segments.append(TranscriptSegment(
-                        start_time=seg.start,
-                        end_time=seg.end,
-                        text=seg.text.strip(),
-                        source="audio",
-                        confidence=seg.no_speech_prob
-                    ))
+                    for seg in result.get("segments", []):
+                        segments.append(TranscriptSegment(
+                            start_time=seg["start"],
+                            end_time=seg["end"],
+                            text=seg["text"].strip(),
+                            source="audio",
+                            confidence=1.0 - seg.get("no_speech_prob", 0)
+                        ))
 
             finally:
                 if temp_audio.exists():
@@ -352,7 +397,8 @@ class FrameExtractor:
                         ['ffmpeg', '-y', '-v', 'error', '-ss', str(ts),
                          '-i', str(video_path), '-vframes', '1',
                          '-q:v', '2', str(frame_path)],
-                        capture_output=True, timeout=10, check=False
+                        capture_output=True, timeout=10, check=False,
+                        encoding='utf-8', errors='replace'
                     )
                     if proc.returncode == 0 and frame_path.exists():
                         # Compute perceptual hash
@@ -390,7 +436,8 @@ class FrameExtractor:
             proc = subprocess.run(
                 ['ffprobe', '-v', 'error', '-show_format', '-print_format', 'json',
                  str(video_path)],
-                capture_output=True, text=True, timeout=30, check=False
+                capture_output=True, text=True, timeout=30, check=False,
+                encoding='utf-8', errors='replace'
             )
             duration = 60.0  # default
             if proc.returncode == 0:
@@ -412,7 +459,8 @@ class FrameExtractor:
                     ['ffmpeg', '-y', '-v', 'error', '-ss', str(ts),
                      '-i', str(video_path), '-vframes', '1',
                      '-q:v', '2', str(frame_path)],
-                    capture_output=True, timeout=10, check=False
+                    capture_output=True, timeout=10, check=False,
+                    encoding='utf-8', errors='replace'
                 )
                 if proc.returncode == 0 and frame_path.exists():
                     frames.append((frame_path, ts))
@@ -673,7 +721,8 @@ class VideoRouter:
             proc = subprocess.run(
                 ['ffprobe', '-v', 'error', '-show_streams', '-print_format', 'json',
                  str(video_path)],
-                capture_output=True, text=True, timeout=30, check=False
+                capture_output=True, text=True, timeout=30, check=False,
+                encoding='utf-8', errors='replace'
             )
             if proc.returncode != 0:
                 return []
@@ -690,7 +739,8 @@ class VideoRouter:
                     proc = subprocess.run(
                         ['ffmpeg', '-y', '-v', 'error', '-i', str(video_path),
                          '-map', f'0:{stream_idx}', '-f', 'srt', str(temp_srt)],
-                        capture_output=True, timeout=60, check=False
+                        capture_output=True, timeout=60, check=False,
+                        encoding='utf-8', errors='replace'
                     )
                     if proc.returncode == 0 and temp_srt.exists():
                         segments.extend(self._parse_subtitle_file(temp_srt))
