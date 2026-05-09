@@ -1,3 +1,5 @@
+[![GitHub stars](https://img.shields.io/github/stars/1596941391qq/anything-to-md?style=social)](https://github.com/1596941391qq/anything-to-md/stargazers) [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE) [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/) [![MCP Server](https://img.shields.io/badge/MCP-Server-6e40c9.svg)](#mcp-server)
+
 # Anything-to-MD
 
 > 把任何文件变成 AI 能吃的 Markdown。PDF、Office、图片、音视频、YouTube — 一个命令搞定。
@@ -110,7 +112,7 @@ PROBE → DECIDE → EXTRACT → FUSE
 
 **Linux / macOS:**
 ```bash
-git clone https://github.com/your-repo/anything-to-md.git
+git clone https://github.com/1596941391qq/anything-to-md.git
 cd anything-to-md
 chmod +x install.sh
 ./install.sh
@@ -118,7 +120,7 @@ chmod +x install.sh
 
 **Windows (PowerShell):**
 ```powershell
-git clone https://github.com/your-repo/anything-to-md.git
+git clone https://github.com/1596941391qq/anything-to-md.git
 cd anything-to-md
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\install.ps1
